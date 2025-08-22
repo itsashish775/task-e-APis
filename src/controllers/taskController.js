@@ -1,6 +1,7 @@
 const { validationResult } = require("express-validator");
 const { Task } = require("../models");
 const messages = require("../constants/messages");
+const { Op } = require("sequelize");
 
 const taskController = {
   // Create task
@@ -10,8 +11,8 @@ const taskController = {
       return res.error("Validation failed", 400, errors.array());
 
     try {
-        console.log(req.body);
-        
+      console.log(req.body);
+
       const task = await Task.create({ ...req.body, user_id: req.user.id });
       return res.success({ task }, messages.TASK_CREATED, 201);
     } catch (err) {
@@ -27,24 +28,39 @@ const taskController = {
     if (!errors.isEmpty())
       return res.error("Validation failed", 400, errors.array());
 
-    const page = req.query.page || 1;
-    const limit = req.query.limit || 10;
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const search = req.query.search;
 
-    const { count, rows } = await Task.findAndCountAll({
-      where: { user_id: req.user.id },
-      limit,
-      offset,
-      order: [["created_at", "DESC"]],
-    });
+    try {
+      const { count, rows } = await Task.findAndCountAll({
+        where: {
+          user_id: req.user.id,
+          ...(search
+            ? {
+                [Op.or]: [
+                  { title: { [Op.like]: `%${search}%` } },
+                  { description: { [Op.like]: `%${search}%` } },
+                ],
+              }
+            : {}),
+        },
+        limit,
+        offset,
+        order: [["created_at", "DESC"]],
+      });
 
-    return res.success({
-      page,
-      limit,
-      total: count,
-      totalPages: Math.ceil(count / limit),
-      data: rows,
-    });
+      return res.success({
+        page,
+        limit,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        data: rows,
+      });
+    } catch (err) {
+      return res.error("Failed to list tasks", 500, err.message);
+    }
   },
 
   // Get task by ID
